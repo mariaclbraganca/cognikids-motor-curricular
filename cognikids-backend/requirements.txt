@@ -1,0 +1,37 @@
+# Versoes fixadas para garantir reprodutibilidade (requisito do artigo).
+# Atualize com criterio: mudancas aqui podem afetar as metricas publicadas.
+
+# --- API ---
+Flask==3.0.3
+python-dotenv==1.0.1
+Flask-PyMongo==2.3.0
+pymongo==4.8.0
+bcrypt==4.2.0
+Flask-Bcrypt==1.0.1
+Flask-Cors==4.0.1
+PyJWT==2.9.0
+pydantic==2.8.2
+email-validator==2.2.0
+Werkzeug==3.0.3
+
+# --- Documentacao (Swagger) ---
+flasgger==0.9.7.1
+flask-swagger-ui==4.11.1
+
+# --- Pipeline IoT ---
+redis==5.0.8
+paho-mqtt==1.6.1
+pytz==2024.1
+
+# --- Machine Learning ---
+scikit-learn==1.5.1
+pandas==2.2.2
+joblib==1.4.2
+numpy==1.26.4
+
+# --- Utilitarios ---
+requests==2.32.3
+
+# --- Testes ---
+pytest==8.3.2
+mongomock==4.1.2

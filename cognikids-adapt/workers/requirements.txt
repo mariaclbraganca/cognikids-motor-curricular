@@ -1,0 +1,8 @@
+aio-pika==9.6.2
+motor==3.7.1
+pyphen==0.17.2
+httpx==0.28.1
+pyjwt==2.10.1
+networkx==3.4.2
+pytest==8.3.4
+pytest-asyncio==0.24.0

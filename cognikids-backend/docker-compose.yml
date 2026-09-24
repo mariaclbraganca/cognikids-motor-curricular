@@ -1,0 +1,84 @@
+# Orquestracao das 4 camadas do CogniKids.
+services:
+  # 1. API Flask (camada de Aplicacao)
+  api:
+    build: .
+    ports:
+      - "5001:5001"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      # Core e satelite sobem como dois `docker compose` separados (mesmo
+      # motivo do CORE_BASE_URL no compose do satelite) — dentro do
+      # container, "localhost" e' o proprio container, nao o host. So usada
+      # pela cascata de revogacao (Utils/satellite_client.py, ADR-008/
+      # ADR-010); se o satelite nao estiver rodando, a chamada falha rapido
+      # e so' gera um aviso em log — o core nao depende dela pra funcionar.
+      SATELLITE_BASE_URL: http://host.docker.internal:8001
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  # 2. Banco de Dados (MongoDB)
+  db:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+
+  # 3. MQTT Broker (camada de Percepcao)
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+
+  # 4. Redis (camada de Buffer elastico)
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  # 5. Ponte MQTT -> Redis (camada de Buffer)
+  bridge:
+    build: .
+    command: python -u mqtt_to_redis_bridge.py
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+      - mosquitto
+    restart: unless-stopped
+
+  # 6. Consumidor de Alertas / inferencia ML (camada de Inteligencia)
+  # Requer model.joblib: gere com `python scripts/utils/train_model.py`.
+  consumer:
+    build: .
+    command: python -u alert_monitor.py
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+volumes:
+  mongo-data:

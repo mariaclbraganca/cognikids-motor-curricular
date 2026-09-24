@@ -1,0 +1,22 @@
+# Reproduz os 3 notebooks de mineração (nucleo1/2/3). PySpark exige Java (JDK
+# 17+) instalado separadamente — ver nota de infraestrutura no CLAUDE.md,
+# seção Sprint 4. xgboost fixado abaixo de 2.1 por incompatibilidade
+# conhecida entre xgboost>=3 e shap.TreeExplainer (base_score em formato que
+# o shap 0.49.1 não consegue parsear).
+jupyter==1.1.1
+nbconvert==7.17.1
+pandas==2.3.3
+numpy==2.2.6
+scikit-learn==1.7.2
+pyphen==0.18.0
+networkx==3.4.2
+pyspark==4.2.0
+xgboost==2.0.3
+lightgbm==4.6.0
+scipy==1.15.3
+matplotlib==3.10.8
+textstat==0.7.13
+pyarrow==25.0.0
+shap==0.49.1
+playwright==1.46.0
+pypdf==6.16.0

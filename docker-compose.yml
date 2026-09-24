@@ -1,0 +1,129 @@
+# Orquestra o serviço satélite (cognikids-adapt/). O core tem seu próprio
+# docker-compose.yml em cognikids-backend/ — os dois rodam independentes,
+# comunicando-se só via HTTP (ver CLAUDE.md seção 4).
+#
+# Subir só o satélite:        docker compose up
+# Subir os dois juntos:       docker compose -f docker-compose.yml -f cognikids-backend/docker-compose.yml up
+
+# Nome do projeto explícito — sem isso o Compose deriva o prefixo das
+# imagens/containers do nome da pasta onde o comando roda, que ainda é
+# CogniKids-SBCUP2026 (rename pendente, ver CLAUDE.md). Fixando aqui, o
+# nome das imagens já fica correto independente do nome da pasta.
+name: cognikids-adapt
+
+services:
+  gateway:
+    build: ./cognikids-adapt/gateway
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      # Dentro da rede do Docker Compose, os serviços se enxergam pelo nome,
+      # não por localhost — sobrescreve o que vem do .env (pensado pra uso local)
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672/
+      SATELLITE_MONGO_URI: mongodb://mongo-adapt:27017/cognikids_adapt
+      # O gateway agora consulta consentimento no core antes de aceitar
+      # telemetria (app/clients/core_client.py) — mesma ponte host.docker.internal
+      # já usada pelo worker-profile, ver comentário lá embaixo
+      CORE_BASE_URL: http://host.docker.internal:5001
+    depends_on:
+      - rabbitmq
+      - mongo-adapt
+    restart: unless-stopped
+
+  worker-ingestion:
+    build: ./cognikids-adapt/workers
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672/
+      SATELLITE_MONGO_URI: mongodb://mongo-adapt:27017/cognikids_adapt
+    depends_on:
+      - rabbitmq
+      - mongo-adapt
+    restart: unless-stopped
+
+  worker-analysis:
+    build: ./cognikids-adapt/workers
+    command: ["python", "worker_analysis.py"]
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672/
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+
+  worker-profile:
+    build: ./cognikids-adapt/workers
+    command: ["python", "worker_profile.py"]
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672/
+      SATELLITE_MONGO_URI: mongodb://mongo-adapt:27017/cognikids_adapt
+      # Satélite e core sobem como dois `docker compose` separados (não dá
+      # pra combinar os dois docker-compose.yml com -f — bug de resolução de
+      # build context ao mesclar). host.docker.internal:5001 alcança a porta
+      # publicada do core no host, funciona nos dois cenários: core rodando
+      # via Docker (porta publicada) ou core rodando direto na máquina. Se o
+      # core estiver fora do ar, a resolução falha e o worker degrada
+      # normalmente (loga aviso, segue sem tokens — ver worker_profile.py).
+      CORE_BASE_URL: http://host.docker.internal:5001
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      # Credenciais vindas do .env. O default guest:guest do RabbitMQ so
+      # aceita conexao de localhost, mas o console de administracao estava
+      # publicado em 0.0.0.0:15672 — qualquer maquina na mesma rede (Wi-Fi
+      # da escola) alcancava a fila de telemetria de criancas.
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?defina RABBITMQ_USER no .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?defina RABBITMQ_PASS no .env}
+    ports:
+      # Ligado so ao loopback: alcancavel da propria maquina, nao da rede.
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    restart: unless-stopped
+
+  mongo-adapt:
+    image: mongo:7
+    ports:
+      # Idem: o banco do satelite guarda student_graphs e telemetry_events —
+      # comportamento de crianca — e estava publicado na rede sem auth.
+      #
+      # ATENCAO: nao adianta so acrescentar MONGO_INITDB_ROOT_USERNAME aqui.
+      # Essa variavel so tem efeito quando o volume esta VAZIO; com o volume
+      # mongo-adapt-data ja populado, ela e' ignorada em silencio e o banco
+      # segue sem auth parecendo protegido. Ate la, o loopback e' a protecao
+      # real, e scripts/verificar_seguranca_ao_vivo.py (Ataque 5) detecta e
+      # falha o build se essa falta de auth voltar a passar despercebida.
+      #
+      # Para habilitar auth de verdade, dois caminhos:
+      #   (a) Recriar o volume do zero (perde os dados atuais do satelite):
+      #         docker compose down
+      #         docker volume rm cognikids-adapt_mongo-adapt-data
+      #         # definir MONGO_INITDB_ROOT_USERNAME/PASSWORD no .env
+      #         docker compose up -d
+      #   (b) Criar o usuario no volume ja populado, sem perder dados:
+      #         docker compose exec mongo-adapt mongosh --eval '
+      #           db.getSiblingDB("admin").createUser({
+      #             user: "<definir>", pwd: "<definir>",
+      #             roles: [{role: "root", db: "admin"}]
+      #           })'
+      #         # depois, reiniciar mongo-adapt com "command: [--auth]" (ou
+      #         # setar MONGO_INITDB_ROOT_USERNAME so' para validar — ela
+      #         # nao recria o usuario, mas "--auth" passa a exigi-lo) e
+      #         # atualizar SATELLITE_MONGO_URI com usuario:senha@ nos tres
+      #         # servicos (gateway, worker-ingestion, worker-profile).
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - mongo-adapt-data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo-adapt-data:
